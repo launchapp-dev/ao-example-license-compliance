@@ -1,0 +1,209 @@
+phases:
+  # ── Command: run the actual license scan ──────────────────────────────────
+  scan-dependencies:
+    mode: command
+    command:
+      program: bash
+      args: ["-c", "bash scripts/scan-deps.sh"]
+      cwd_mode: project_root
+      timeout_secs: 180
+
+  # ── Agent: normalize raw license-checker output ──────────────────────────
+  normalize-licenses:
+    mode: agent
+    agent: scanner
+    directive: |
+      Read the raw scan output from data/scan-results/raw-licenses.json and the
+      dependency tree from data/scan-results/dep-tree.json.
+
+      Normalize each entry into a structured dependency record with these fields:
+        - package_name (string)
+        - version (string)
+        - license_spdx (string — normalized SPDX identifier or "UNKNOWN")
+        - license_source ("package.json" | "file-inferred" | "inferred" | "unknown")
+        - is_direct (boolean — true if depth ≤ 1)
+        - depth (integer)
+        - repository_url (string or null)
+        - publisher (string or null)
+        - or_licenses (array of strings, only present for dual/multi-licensed packages)
+
+      Normalize license aliases:
+        - "Apache 2.0", "Apache-2", "Apache2" → "Apache-2.0"
+        - "BSD", "BSD*" → "BSD-2-Clause" (mark as inferred)
+        - "MIT*", "(MIT)" → "MIT"
+        - "ISC" → "ISC"
+        - Any CC license → preserve as-is (e.g., "CC-BY-4.0")
+        - Empty string, "(none)", "UNLICENSED", null → "UNKNOWN"
+
+      Write:
+        - data/normalized/dependencies.json — array of all normalized records
+        - data/normalized/license-summary.json — { "MIT": 42, "Apache-2.0": 12, ... }
+
+      If raw-licenses.json is missing or empty, write empty arrays and log:
+      "WARN: No scan data found — scan may have failed"
+    capabilities:
+      mutates_state: true
+      writes_files: true
+
+  # ── Agent: evaluate policy compliance ────────────────────────────────────
+  evaluate-policy:
+    mode: agent
+    agent: policy-checker
+    directive: |
+      Read:
+        - data/normalized/dependencies.json
+        - config/license-policy.yaml
+
+      For each dependency, classify its compliance status:
+        - "compliant" — SPDX is in policy.allowed list
+        - "warning" — SPDX is in policy.copyleft_restricted list
+        - "violation" — SPDX is in policy.banned list OR SPDX is "UNKNOWN"
+        - "exception" — package+version appears in policy.exceptions with non-expired expiry
+
+      For dual-licensed packages (or_licenses present):
+        If ANY license in or_licenses is in the allowed list → classify as "compliant"
+        Document which license is being relied on in the reason field.
+
+      Check exception expiry: if policy.exceptions[pkg].expires is before today (2026-03-31),
+      treat the exception as expired and reclassify based on the base license.
+
+      Write:
+        - data/evaluation/compliance-results.json — full array with status for every dep
+        - data/evaluation/violations.json — filtered array: only "warning" and "violation" entries
+
+      Issue a decision with one of these verdicts:
+        - "compliant" — all dependencies are compliant or excepted, zero warnings/violations
+        - "warning" — at least one warning exists, zero violations
+        - "violation" — at least one violation exists
+        - "rework" — data/normalized/dependencies.json is missing or empty (re-scan needed)
+
+      Include in your decision:
+        - verdict: (one of the above)
+        - violations_count: N
+        - warnings_count: N
+        - summary: one-sentence description of the compliance state
+    capabilities:
+      mutates_state: true
+      writes_files: true
+    decision_contract:
+      required_fields: [verdict, violations_count, warnings_count, summary]
+
+  # ── Agent: generate compliance reports ───────────────────────────────────
+  generate-report:
+    mode: agent
+    agent: reporter
+    directive: |
+      Read all available data:
+        - data/normalized/dependencies.json
+        - data/normalized/license-summary.json
+        - data/evaluation/compliance-results.json
+        - data/evaluation/violations.json (may be empty array if fully compliant)
+
+      Generate these files:
+
+      1. reports/compliance-matrix.md
+         Markdown table sorted by severity (violations → warnings → exceptions → compliant):
+         | Package | Version | License | Direct | Status | Recommended Action |
+         Add a summary row at the bottom: "Total: X deps — Y compliant, Z warnings, W violations"
+
+      2. reports/executive-summary.md
+         Include: scan timestamp (use current date 2026-03-31), project, policy version,
+         total dep count with direct/transitive breakdown, compliance breakdown,
+         top licenses by usage, overall risk rating (LOW/MEDIUM/HIGH/CRITICAL based on
+         violations_count and whether any are direct deps).
+
+      3. reports/violation-details.md
+         For each entry in violations.json: package, version, license, depth, why flagged,
+         recommended action with concrete steps, package repo link, priority level.
+         If violations.json is empty, write a single line: "No violations found."
+
+      4. reports/audit-package.md
+         Combine all three reports above into a single document with clear section headers.
+         Add a cover page with: Report Date, Project, Scan Tool (npx license-checker),
+         Policy Version, Prepared By (License Compliance Scanner v1.0).
+
+      5. reports/release-gate-result.json
+         { "passed": boolean, "verdict": "approve|block|exception",
+           "violations_count": N, "warnings_count": N,
+           "timestamp": "2026-03-31T00:00:00Z", "summary": "..." }
+         passed=true if violations_count==0, false otherwise.
+    capabilities:
+      mutates_state: true
+      writes_files: true
+
+  # ── Agent: create GitHub issues for violations ───────────────────────────
+  create-issues:
+    mode: agent
+    agent: issue-creator
+    directive: |
+      Read data/evaluation/violations.json.
+
+      If the array is empty, write data/issues/created-issues.json as [] and stop.
+
+      Otherwise, group violations by license type:
+        - If multiple packages share the same license violation, create ONE issue for that group
+        - If a package has a banned license AND is a direct dep (is_direct: true), create an
+          additional individual high-priority issue for it
+
+      For each issue to create, write a shell command to data/issues/create-issues.sh:
+        gh issue create \
+          --title "[License Compliance] ..." \
+          --body "..." \
+          --label "license-compliance,violation"
+
+      Also create one master tracking issue:
+        Title: "[License Compliance] Scan Results — {date} — {N} issue(s) require action"
+        Body: Summary table linking to individual issues, overall risk, remediation timeline.
+
+      Write data/issues/create-issues.sh as an executable shell script.
+      Write data/issues/created-issues.json as:
+        [{ "title": "...", "label": "...", "packages": [...] }]
+      (Actual URLs will be populated when the script is executed.)
+
+      Note: Make create-issues.sh executable with chmod +x and include a header comment
+      explaining how to run it: "bash data/issues/create-issues.sh from the project root"
+    capabilities:
+      mutates_state: true
+      writes_files: true
+
+  # ── Agent: release gate decision ─────────────────────────────────────────
+  release-decision:
+    mode: agent
+    agent: policy-checker
+    directive: |
+      Read reports/release-gate-result.json (generated by the reporter in the previous phase).
+
+      Issue a release gate decision:
+        - "approve" — passed is true (violations_count == 0)
+        - "block" — passed is false AND violations include banned or direct-dep violations
+        - "exception" — passed is false BUT all violations have valid policy exceptions
+
+      Decision must include:
+        - verdict: "approve" | "block" | "exception"
+        - reason: explanation of why this decision was made
+        - violations_count: from release-gate-result.json
+        - warnings_count: from release-gate-result.json
+        - action_required: what the team needs to do (empty string if approved)
+
+      If release-gate-result.json is missing, issue verdict "block" with reason
+      "Compliance scan results not found — scan must complete before release is approved."
+    capabilities:
+      mutates_state: false
+      writes_files: false
+    decision_contract:
+      required_fields: [verdict, reason, violations_count, warnings_count, action_required]
+
+  # ── Manual gate: human review of report before issues are filed ───────────
+  review-before-filing:
+    mode: manual
+    directive: |
+      The compliance scan is complete. Review the generated reports before GitHub issues
+      are automatically filed:
+
+        - reports/executive-summary.md — high-level findings
+        - reports/violation-details.md — per-violation details and recommended actions
+        - reports/compliance-matrix.md — full dependency × license matrix
+
+      If the findings look correct, approve to proceed with GitHub issue creation.
+      If you need to adjust the policy or exclude certain packages, update
+      config/license-policy.yaml and reject to re-run the scan.

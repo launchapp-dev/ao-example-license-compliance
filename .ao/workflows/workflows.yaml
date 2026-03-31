@@ -1,0 +1,49 @@
+default_workflow_ref: compliance-scan
+
+workflows:
+  # ── Full compliance audit pipeline ────────────────────────────────────────
+  - id: compliance-scan
+    name: "License Compliance Scan"
+    description: "Full pipeline: scan dependencies → normalize → evaluate policy → report → create GitHub issues"
+    phases:
+      - scan-dependencies
+      - normalize-licenses
+      - evaluate-policy:
+          on_verdict:
+            compliant:
+              target: generate-report
+            warning:
+              target: generate-report
+            violation:
+              target: generate-report
+            rework:
+              target: scan-dependencies
+          max_rework_attempts: 2
+      - generate-report
+      - review-before-filing
+      - create-issues
+    post_success:
+      notify:
+        message: "License compliance scan complete. Reports written to reports/. Check data/issues/create-issues.sh to file GitHub issues."
+
+  # ── Pre-release gate (CI/CD integration) ─────────────────────────────────
+  - id: pre-release-gate
+    name: "Pre-Release License Gate"
+    description: "Streamlined scan for CI/CD — scan → normalize → evaluate → approve or block release"
+    phases:
+      - scan-dependencies
+      - normalize-licenses
+      - evaluate-policy:
+          on_verdict:
+            rework:
+              target: scan-dependencies
+          max_rework_attempts: 1
+      - generate-report
+      - release-decision:
+          on_verdict:
+            approve:
+              target: null
+            block:
+              target: null
+            exception:
+              target: null

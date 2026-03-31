@@ -1,0 +1,6 @@
+schedules:
+  # Weekly compliance audit — every Monday at 9am
+  - id: weekly-scan
+    cron: "0 9 * * 1"
+    workflow_ref: compliance-scan
+    enabled: true

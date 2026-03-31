@@ -1,0 +1,32 @@
+# Scan Configuration
+# Controls what gets scanned and how
+
+# Path to the project to scan (relative to repo root, or absolute)
+# Default: current directory (scans the project this repo is in)
+target_path: "."
+
+# Skip devDependencies (false = scan everything including dev deps)
+# Set to true for production-only compliance scans
+exclude_dev: false
+
+# Packages to exclude from scanning (exact match or glob)
+# Useful for monorepos with known-exempt packages
+exclude_patterns:
+  # - "my-internal-*"
+  # - "@company/shared-*"
+
+# Maximum transitive depth to scan (null = unlimited)
+# Useful to reduce noise in very large dependency trees
+depth_limit: null
+
+# Output directory for scan results
+output_dir: "data/scan-results"
+
+# Whether to fail the scan if any packages have no license
+# (false = mark as UNKNOWN and continue)
+fail_on_unknown: false
+
+# GitHub repository for issue creation (owner/repo)
+# Required for the create-issues phase
+github_repo: ""
+# Example: github_repo: "myorg/myproject"

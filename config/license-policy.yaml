@@ -1,0 +1,77 @@
+# License Policy Configuration
+# Version: 1.0.0
+# Last updated: 2026-03-31
+#
+# Edit this file to customize your organization's license policy.
+# All SPDX identifiers: https://spdx.org/licenses/
+
+policy_version: "1.0.0"
+project: "my-project"
+
+# Licenses approved for use without restriction
+allowed:
+  - MIT
+  - Apache-2.0
+  - BSD-2-Clause
+  - BSD-3-Clause
+  - ISC
+  - CC0-1.0
+  - Unlicense
+  - 0BSD
+  - BlueOak-1.0.0
+  - CC-BY-3.0
+  - CC-BY-4.0
+  - Zlib
+  - PSF-2.0
+  - Python-2.0
+  - WTFPL
+  - Artistic-2.0
+
+# Licenses that trigger a WARNING — legal review required before shipping
+# These are generally copyleft licenses that may impose source-sharing obligations
+copyleft_restricted:
+  - GPL-2.0-only
+  - GPL-2.0-or-later
+  - GPL-3.0-only
+  - GPL-3.0-or-later
+  - AGPL-3.0-only
+  - AGPL-3.0-or-later
+  - LGPL-2.0-only
+  - LGPL-2.1-only
+  - LGPL-2.1-or-later
+  - LGPL-3.0-only
+  - LGPL-3.0-or-later
+  - MPL-2.0
+  - EPL-1.0
+  - EPL-2.0
+  - CDDL-1.0
+  - EUPL-1.2
+  - OSL-3.0
+  - EUPL-1.1
+
+# Licenses that are PROHIBITED — no use without explicit executive approval
+banned:
+  - SSPL-1.0        # MongoDB Server Side Public License
+  - BSL-1.1         # Business Source License
+  - BUSL-1.1        # Busl variant
+  - CC-BY-NC-4.0    # Non-commercial restriction
+  - CC-BY-NC-SA-4.0 # Non-commercial restriction
+  - Commons-Clause  # Anti-competitive restriction add-on
+  - AGPL-3.0-only   # Move to copyleft_restricted if you accept AGPL obligation
+
+# Package-specific exceptions
+# Format: package@version or package (matches any version)
+# Requires: reason, approver, approved_at, expires (ISO8601 date or null for permanent)
+exceptions: {}
+# Example:
+# exceptions:
+#   "some-gpl-package@1.2.3":
+#     reason: "Used only in test environment, not distributed"
+#     approver: "legal@example.com"
+#     approved_at: "2026-01-15"
+#     expires: "2026-12-31"
+#   "another-package":
+#     reason: "Permanent exception — only linked dynamically, LGPL obligation satisfied"
+#     approver: "cto@example.com"
+#     approved_at: "2025-06-01"
+#     expires: null
